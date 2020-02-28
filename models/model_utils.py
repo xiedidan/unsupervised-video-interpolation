@@ -76,7 +76,7 @@ class MyResample2D(nn.Module):
         norm_grid_wh = torch.stack((ww, hh), dim=-1)
 
         # Perform a resample
-        reampled_im = torch.nn.functional.grid_sample(im, norm_grid_wh)
+        reampled_im = torch.nn.functional.grid_sample(im, norm_grid_wh, align_corners=True)
 
         return reampled_im
 

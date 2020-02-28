@@ -391,9 +391,6 @@ def train_epoch(epoch, args, model, optimizer, lr_scheduler,
     # Average loss calculator.
     loss_values = utils.AverageMeter()
 
-    # Advance Learning rate.
-    lr_scheduler.step()
-
     # This will ensure the data is shuffled each epoch.
     if train_sampler is not None:
         train_sampler.set_epoch(epoch)
@@ -449,6 +446,10 @@ def train_epoch(epoch, args, model, optimizer, lr_scheduler,
         # Break the training loop if we have reached the maximum number of batches.
         if (i + 1) >= num_batches:
             break
+
+    # Advance Learning rate.
+    lr_scheduler.step()
+
     return global_index
 
 
