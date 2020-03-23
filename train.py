@@ -223,6 +223,7 @@ def load_model(model, optimizer, block, args):
         args.start_epoch = max(0, checkpoint['epoch'])
     block.log("Successfully loaded checkpoint (at epoch {})".format(
         checkpoint['epoch']))
+    lr_scheduler = checkpoint['lr_sched']
 
 
 def build_and_initialize_model_and_optimizer(block, args):
@@ -471,6 +472,7 @@ def save_model(model, optimizer, epoch, global_index, max_psnr, block, args):
                              'arch': args.model,
                              'state_dict': state_dict,
                              'optimizer': optimizer.state_dict(),
+                             'lr_sched' : lr_scheduler
                              }
         model_name = os.path.join(
             args.save_root, '_ckpt_epoch_%03d_iter_%07d_psnr_%1.2f.pt.tar' % (
