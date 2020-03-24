@@ -223,7 +223,9 @@ def load_model(model, optimizer, block, args):
         args.start_epoch = max(0, checkpoint['epoch'])
     block.log("Successfully loaded checkpoint (at epoch {})".format(
         checkpoint['epoch']))
-    _lr_scheduler = checkpoint['lr_sched']
+    if 'lr_scheduler' in checkpoint: 
+        block.log("lr_scheduler here")   
+        _lr_scheduler = checkpoint['lr_scheduler']
     return _lr_scheduler
 
 
@@ -256,15 +258,14 @@ def build_and_initialize_model_and_optimizer(block, args):
     # Run multi-process when it is needed.
     if args.world_size > 1:
         model = DistributedDataParallel(model)
+    if args.resume and os.path.isfile(args.resume):
+        return model, optimizer, _lr_scheduler
+    else:
+        return model, optimizer
 
-    return model, optimizer, _lr_scheduler
 
-
-def get_learning_rate_scheduler(optimizer, block, args, _lr_scheduler):
+def get_learning_rate_scheduler(optimizer, block, args):
     block.log('Base leaning rate {}.'.format(args.lr))
-    if args.resume != '':
-        lr_scheduler = _lr_scheduler
-        return lr_scheduler
     if args.lr_scheduler == 'ExponentialLR':
         block.log('Using exponential decay learning rate scheduler with '
                   '{} decay rate'.format(args.lr_gamma))
@@ -458,7 +459,7 @@ def train_epoch(epoch, args, model, optimizer, lr_scheduler,
     return global_index
 
 
-def save_model(model, optimizer, epoch, global_index, max_psnr, block, args):
+def save_model(model, optimizer, epoch, global_index, max_psnr, block, args, lr_scheduler):
     # Write on rank zero only
     if args.rank == 0:
         if args.world_size > 1:
@@ -476,7 +477,7 @@ def save_model(model, optimizer, epoch, global_index, max_psnr, block, args):
                              'arch': args.model,
                              'state_dict': state_dict,
                              'optimizer': optimizer.state_dict(),
-                             'lr_sched' : lr_scheduler
+                             'lr_scheduler' : lr_scheduler
                              }
         model_name = os.path.join(
             args.save_root, '_ckpt_epoch_%03d_iter_%07d_psnr_%1.2f.pt.tar' % (
@@ -514,7 +515,7 @@ def train(model, optimizer, lr_scheduler, train_loader,
             if v_psnr > max_psnr:
                 max_psnr = v_psnr
                 save_model(model, optimizer, epoch + 1, global_index,
-                           max_psnr, block, args)
+                           max_psnr, block, args, lr_scheduler)
 
     return 0
 
@@ -539,12 +540,18 @@ def main():
     # Build the model and optimizer.
     with utils.TimerBlock("Building {} Model and {} Optimizer".format(
             args.model, args.optimizer_class.__name__)) as block:
-        model, optimizer, _lr_scheduler = build_and_initialize_model_and_optimizer(block, args)
+        if args.resume and os.path.isfile(args.resume):
+            model, optimizer, _lr_scheduler = build_and_initialize_model_and_optimizer(block, args)
+        else:
+            model, optimizer = build_and_initialize_model_and_optimizer(block, args)
 
     # Learning rate scheduler.
     with utils.TimerBlock("Building {} Learning Rate Scheduler".format(
             args.optimizer)) as block:
-        lr_scheduler = get_learning_rate_scheduler(optimizer, block, args, _lr_scheduler)
+        if args.resume and os.path.isfile(args.resume):
+            lr_scheduler = _lr_scheduler
+        else:
+            lr_scheduler = get_learning_rate_scheduler(optimizer, block, args)
 
     # Set the tf writer on rank 0.
     with utils.TimerBlock("Creating Tensorboard Writers"):
