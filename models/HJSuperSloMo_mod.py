@@ -58,7 +58,7 @@ class cSE(nn.Module):
     def forward(self, x):
         x=nn.AvgPool2d(x.size()[2:])(x)
         x=self.conv1(x)
-        x=F.relu(x)
+        x=F.leaky_relu(x, negative_slope=0.1)
         x=self.conv2(x)
         x=torch.sigmoid(x)
 
@@ -100,14 +100,24 @@ class HJSuperSloMoMod(nn.Module):
         self.hc = args.hc
         self.lite_encoder = args.lite_encoder
         self.scse = args.scse
-
+        self.backbone = args.backbone
+        
         # --------------------- encoder --------------------
         # conv1
-        self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder)
-        self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
-        self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
-        self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
-        self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
+        if self.backbone is None:
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder)
+            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
+            self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
+            self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
+            self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
+        else:
+            self.flow_pred_backbone = self.backbone(pretrained=True, progress=True)
+
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 64, 7, 3, lite=self.lite_encoder)
+            self.flow_pred_encoder_layer2= self.flow_pred_backbone.layer1
+            self.flow_pred_encoder_layer3= self.flow_pred_backbone.layer2
+            self.flow_pred_encoder_layer4= self.flow_pred_backbone.layer3
+            self.flow_pred_encoder_layer5 = self.flow_pred_backbone.layer4
 
         self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
 
@@ -118,7 +128,7 @@ class HJSuperSloMoMod(nn.Module):
         self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
 
         self.flow_pred_refine_layer = nn.Sequential(
-            nn.Conv2d(64, 32, 3, padding=1),
+            nn.Conv2d(64 if self.backbone is None else 96, 32, 3, padding=1),
             nn.LeakyReLU(inplace=True, negative_slope=0.1))
         
         if not self.hc:
@@ -130,11 +140,20 @@ class HJSuperSloMoMod(nn.Module):
             self.backward_flow_conv = nn.Conv2d(512, 2, 1)
 
         # -------------- flow interpolation encoder-decoder --------------
-        self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3, lite=self.lite_encoder)
-        self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
-        self.flow_interp_encoder_layer3 = self.make_flow_interp_encoder_layer(64, 128)
-        self.flow_interp_encoder_layer4 = self.make_flow_interp_encoder_layer(128, 256)
-        self.flow_interp_encoder_layer5 = self.make_flow_interp_encoder_layer(256, 512)
+        if self.backbone is None:
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer3 = self.make_flow_interp_encoder_layer(64, 128)
+            self.flow_interp_encoder_layer4 = self.make_flow_interp_encoder_layer(128, 256)
+            self.flow_interp_encoder_layer5 = self.make_flow_interp_encoder_layer(256, 512)
+        else:
+            self.flow_interp_backbone = self.backbone(pretrained=True, progress=True)
+
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 64, 7, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer2= self.flow_interp_backbone.layer1
+            self.flow_interp_encoder_layer3= self.flow_interp_backbone.layer2
+            self.flow_interp_encoder_layer4= self.flow_interp_backbone.layer3
+            self.flow_interp_encoder_layer5 = self.flow_interp_backbone.layer4
 
         self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
 
@@ -145,7 +164,7 @@ class HJSuperSloMoMod(nn.Module):
         self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
 
         self.flow_interp_refine_layer = nn.Sequential(
-            nn.Conv2d(64, 32, 3, padding=1),
+            nn.Conv2d(64 if self.backbone is None else 96, 32, 3, padding=1),
             nn.LeakyReLU(inplace=True, negative_slope=0.1))
         
         if not self.hc:
@@ -255,24 +274,38 @@ class HJSuperSloMoMod(nn.Module):
         return layer
 
     def make_flow_interpolation(self, in_data, flow_pred_bottleneck_out):
-        flow_interp_encoder_out1 = self.flow_interp_encoder_layer1(in_data)
-        flow_interp_encoder_out1_pool = F.avg_pool2d(flow_interp_encoder_out1, 2, stride=2)
+        if self.backbone is None:
+            flow_interp_encoder_out1 = self.flow_interp_encoder_layer1(in_data)
+            flow_interp_encoder_out1_pool = F.avg_pool2d(flow_interp_encoder_out1, 2, stride=2)
 
-        flow_interp_encoder_out2 = self.flow_interp_encoder_layer2(flow_interp_encoder_out1_pool)
-        flow_interp_encoder_out2_pool = F.avg_pool2d(flow_interp_encoder_out2, 2, stride=2)
+            flow_interp_encoder_out2 = self.flow_interp_encoder_layer2(flow_interp_encoder_out1_pool)
+            flow_interp_encoder_out2_pool = F.avg_pool2d(flow_interp_encoder_out2, 2, stride=2)
 
-        flow_interp_encoder_out3 = self.flow_interp_encoder_layer3(flow_interp_encoder_out2_pool)
-        flow_interp_encoder_out3_pool = F.avg_pool2d(flow_interp_encoder_out3, 2, stride=2)
+            flow_interp_encoder_out3 = self.flow_interp_encoder_layer3(flow_interp_encoder_out2_pool)
+            flow_interp_encoder_out3_pool = F.avg_pool2d(flow_interp_encoder_out3, 2, stride=2)
 
-        flow_interp_encoder_out4 = self.flow_interp_encoder_layer4(flow_interp_encoder_out3_pool)
-        flow_interp_encoder_out4_pool = F.avg_pool2d(flow_interp_encoder_out4, 2, stride=2)
+            flow_interp_encoder_out4 = self.flow_interp_encoder_layer4(flow_interp_encoder_out3_pool)
+            flow_interp_encoder_out4_pool = F.avg_pool2d(flow_interp_encoder_out4, 2, stride=2)
 
-        flow_interp_encoder_out5 = self.flow_interp_encoder_layer5(flow_interp_encoder_out4_pool)
-        flow_interp_encoder_out5_pool = F.avg_pool2d(flow_interp_encoder_out5, 2, stride=2)
+            flow_interp_encoder_out5 = self.flow_interp_encoder_layer5(flow_interp_encoder_out4_pool)
+            flow_interp_encoder_out5_pool = F.avg_pool2d(flow_interp_encoder_out5, 2, stride=2)
 
-        flow_interp_bottleneck_out = self.flow_interp_bottleneck(flow_interp_encoder_out5_pool)
-        flow_interp_bottleneck_out = torch.cat((flow_pred_bottleneck_out,
-                                                flow_interp_bottleneck_out), dim=1)
+            flow_interp_bottleneck_out = self.flow_interp_bottleneck(flow_interp_encoder_out5_pool)
+            flow_interp_bottleneck_out = torch.cat((flow_pred_bottleneck_out,
+                                                    flow_interp_bottleneck_out), dim=1)
+        else:
+            flow_interp_encoder_out1 = self.flow_interp_encoder_layer1(in_data)
+            flow_interp_encoder_out1_pool = F.avg_pool2d(flow_interp_encoder_out1, 2, stride=2)
+
+            flow_interp_encoder_out2 = self.flow_interp_encoder_layer2(flow_interp_encoder_out1_pool)
+            flow_interp_encoder_out3 = self.flow_interp_encoder_layer3(flow_interp_encoder_out2)
+            flow_interp_encoder_out4 = self.flow_interp_encoder_layer4(flow_interp_encoder_out3)
+            flow_interp_encoder_out5 = self.flow_interp_encoder_layer5(flow_interp_encoder_out4)
+
+            flow_interp_bottleneck_out = self.flow_interp_bottleneck(flow_interp_encoder_out5)
+            flow_interp_bottleneck_out = F.avg_pool2d(flow_interp_bottleneck_out, 2, stride=2)
+            flow_interp_bottleneck_out = torch.cat((flow_pred_bottleneck_out,
+                                                    flow_interp_bottleneck_out), dim=1)
 
         flow_interp_decoder_out5 = self.flow_interp_decoder_layer5(flow_interp_bottleneck_out)
         flow_interp_decoder_out5_cat = torch.cat((flow_interp_encoder_out5, flow_interp_decoder_out5), dim=1)
@@ -310,23 +343,34 @@ class HJSuperSloMoMod(nn.Module):
         return flow_interp_forward_flow, flow_interp_backward_flow, flow_interp_vis_map
 
     def make_flow_prediction(self, x):
+        if self.backbone is None:
+            encoder_out1 = self.flow_pred_encoder_layer1(x)
+            encoder_out1_pool = F.avg_pool2d(encoder_out1, 2, stride=2)
 
-        encoder_out1 = self.flow_pred_encoder_layer1(x)
-        encoder_out1_pool = F.avg_pool2d(encoder_out1, 2, stride=2)
+            encoder_out2 = self.flow_pred_encoder_layer2(encoder_out1_pool)
+            encoder_out2_pool = F.avg_pool2d(encoder_out2, 2, stride=2)
 
-        encoder_out2 = self.flow_pred_encoder_layer2(encoder_out1_pool)
-        encoder_out2_pool = F.avg_pool2d(encoder_out2, 2, stride=2)
+            encoder_out3 = self.flow_pred_encoder_layer3(encoder_out2_pool)
+            encoder_out3_pool = F.avg_pool2d(encoder_out3, 2, stride=2)
 
-        encoder_out3 = self.flow_pred_encoder_layer3(encoder_out2_pool)
-        encoder_out3_pool = F.avg_pool2d(encoder_out3, 2, stride=2)
+            encoder_out4 = self.flow_pred_encoder_layer4(encoder_out3_pool)
+            encoder_out4_pool = F.avg_pool2d(encoder_out4, 2, stride=2)
 
-        encoder_out4 = self.flow_pred_encoder_layer4(encoder_out3_pool)
-        encoder_out4_pool = F.avg_pool2d(encoder_out4, 2, stride=2)
+            encoder_out5 = self.flow_pred_encoder_layer5(encoder_out4_pool)
+            encoder_out5_pool = F.avg_pool2d(encoder_out5, 2, stride=2)
 
-        encoder_out5 = self.flow_pred_encoder_layer5(encoder_out4_pool)
-        encoder_out5_pool = F.avg_pool2d(encoder_out5, 2, stride=2)
+            bottleneck_out = self.flow_pred_bottleneck(encoder_out5_pool)
+        else:
+            encoder_out1 = self.flow_pred_encoder_layer1(x)
+            encoder_out1_pool = F.avg_pool2d(encoder_out1, 2, stride=2)
 
-        bottleneck_out = self.flow_pred_bottleneck(encoder_out5_pool)
+            encoder_out2 = self.flow_pred_encoder_layer2(encoder_out1_pool)
+            encoder_out3 = self.flow_pred_encoder_layer3(encoder_out2)
+            encoder_out4 = self.flow_pred_encoder_layer4(encoder_out3)
+            encoder_out5 = self.flow_pred_encoder_layer5(encoder_out4)
+
+            bottleneck_out = self.flow_pred_bottleneck(encoder_out5)
+            bottleneck_out = F.avg_pool2d(bottleneck_out, 2, stride=2)
 
         decoder_out5 = self.flow_pred_decoder_layer5(bottleneck_out)
         decoder_out5_cat = torch.cat((encoder_out5, decoder_out5), dim=1)

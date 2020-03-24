@@ -27,10 +27,14 @@
 # *****************************************************************************
 import argparse
 import models
+import torchvision.models as backbone_models
 
 # Collect all available model classes
 model_names = sorted(el for el in models.__dict__
                      if not el.startswith("__") and callable(models.__dict__[el]))
+
+backbone_names = sorted(el for el in backbone_models.__dict__
+                     if not el.startswith("__") and callable(backbone_models.__dict__[el]) and el[0].islower())
 
 """
 Reda, Fitsum A., et al. "Unsupervised Video Interpolation Using Cycle Consistency."
@@ -173,3 +177,8 @@ parser.add_argument('--local_rank', default=None, type=int,
 parser.add_argument('--hc', action='store_true', help='Add HyperColumn to U-Nets.')
 parser.add_argument('--lite_encoder', action='store_true', help='Use multiple 3x3 convs to replace 7x7 and 5x5 convs of the U-Net encoder.')
 parser.add_argument('--scse', action='store_true', help='Add spatial and channel squeeze & excitation to U-Nets.')
+parser.add_argument('--backbone', metavar='BACKBONE', default='none',
+                    choices=backbone_names,
+                    help='backbone architecture: ' +
+                         ' | '.join(backbone_names) +
+                         ' (default: none)')

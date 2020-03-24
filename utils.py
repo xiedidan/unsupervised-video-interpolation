@@ -2,7 +2,7 @@ import sys
 import os
 import subprocess
 import time
-from inspect import isclass
+from inspect import isclass, isfunction
 import numpy as np
 
 
@@ -34,7 +34,7 @@ class TimerBlock:
 
 def module_to_dict(module, exclude=[]):
     return dict([(x, getattr(module, x)) for x in dir(module)
-                 if isclass(getattr(module, x))
+                 if isclass(getattr(module, x)) or isfunction(getattr(module, x))
                  and x not in exclude
                  and getattr(module, x) not in exclude])
 
