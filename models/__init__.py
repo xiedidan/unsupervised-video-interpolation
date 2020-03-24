@@ -26,3 +26,4 @@
 # *****************************************************************************
 from .HJSuperSloMo import *
 from .CycleHJSuperSloMo import *
+from .HJSuperSloMo_mod import *

@@ -168,3 +168,6 @@ parser.add_argument('--post_fix', default='Proposed', type=str,
 # Required for torch distributed launch
 parser.add_argument('--local_rank', default=None, type=int,
                     help='Torch Distributed')
+
+# model modifications
+parser.add_argument('--hc', action='store_true', help='Add HyperColumn to U-Nets.')
