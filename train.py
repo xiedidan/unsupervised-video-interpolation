@@ -223,7 +223,8 @@ def load_model(model, optimizer, block, args):
         args.start_epoch = max(0, checkpoint['epoch'])
     block.log("Successfully loaded checkpoint (at epoch {})".format(
         checkpoint['epoch']))
-    lr_scheduler = checkpoint['lr_sched']
+    _lr_scheduler = checkpoint['lr_sched']
+    return _lr_scheduler
 
 
 def build_and_initialize_model_and_optimizer(block, args):
@@ -241,7 +242,7 @@ def build_and_initialize_model_and_optimizer(block, args):
 
     block.log("Attempting to Load checkpoint '{}'".format(args.resume))
     if args.resume and os.path.isfile(args.resume):
-        load_model(model, optimizer, block, args)
+        _lr_scheduler = load_model(model, optimizer, block, args)
     elif args.resume:
         block.log("No checkpoint found at '{}'".format(args.resume))
         exit(1)
@@ -256,11 +257,14 @@ def build_and_initialize_model_and_optimizer(block, args):
     if args.world_size > 1:
         model = DistributedDataParallel(model)
 
-    return model, optimizer
+    return model, optimizer, _lr_scheduler
 
 
-def get_learning_rate_scheduler(optimizer, block, args):
+def get_learning_rate_scheduler(optimizer, block, args, _lr_scheduler):
     block.log('Base leaning rate {}.'.format(args.lr))
+    if args.resume != '':
+        lr_scheduler = _lr_scheduler
+        return lr_scheduler
     if args.lr_scheduler == 'ExponentialLR':
         block.log('Using exponential decay learning rate scheduler with '
                   '{} decay rate'.format(args.lr_gamma))
@@ -535,12 +539,12 @@ def main():
     # Build the model and optimizer.
     with utils.TimerBlock("Building {} Model and {} Optimizer".format(
             args.model, args.optimizer_class.__name__)) as block:
-        model, optimizer = build_and_initialize_model_and_optimizer(block, args)
+        model, optimizer, _lr_scheduler = build_and_initialize_model_and_optimizer(block, args)
 
     # Learning rate scheduler.
     with utils.TimerBlock("Building {} Learning Rate Scheduler".format(
             args.optimizer)) as block:
-        lr_scheduler = get_learning_rate_scheduler(optimizer, block, args)
+        lr_scheduler = get_learning_rate_scheduler(optimizer, block, args, _lr_scheduler)
 
     # Set the tf writer on rank 0.
     with utils.TimerBlock("Creating Tensorboard Writers"):
