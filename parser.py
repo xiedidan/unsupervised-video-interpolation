@@ -171,3 +171,4 @@ parser.add_argument('--local_rank', default=None, type=int,
 
 # model modifications
 parser.add_argument('--hc', action='store_true', help='Add HyperColumn to U-Nets.')
+parser.add_argument('--lite_encoder', action='store_true', help='Use multiple 3x3 convs to replace 7x7 and 5x5 convs of the U-Net encoder.')

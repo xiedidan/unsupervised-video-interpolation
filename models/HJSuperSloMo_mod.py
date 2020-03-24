@@ -39,15 +39,16 @@ from .model_utils import MyResample2D
 
 class HJSuperSloMoMod(nn.Module):
     def __init__(self, args, mean_pix=[109.93, 109.167, 101.455], in_channel=6):
-        super(HJSuperSloMo, self).__init__()
+        super(HJSuperSloMoMod, self).__init__()
         self.is_output_flow = False
         
         self.hc = args.hc
+        self.lite_encoder = args.lite_encoder
 
         # --------------------- encoder --------------------
         # conv1
-        self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3)
-        self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2)
+        self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder)
+        self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
         self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
         self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
         self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
@@ -73,8 +74,8 @@ class HJSuperSloMoMod(nn.Module):
             self.backward_flow_conv = nn.Conv2d(512, 2, 1)
 
         # -------------- flow interpolation encoder-decoder --------------
-        self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3)
-        self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2)
+        self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3, lite=self.lite_encoder)
+        self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
         self.flow_interp_encoder_layer3 = self.make_flow_interp_encoder_layer(64, 128)
         self.flow_interp_encoder_layer4 = self.make_flow_interp_encoder_layer(128, 256)
         self.flow_interp_encoder_layer5 = self.make_flow_interp_encoder_layer(256, 512)
@@ -129,12 +130,33 @@ class HJSuperSloMoMod(nn.Module):
         self.vgg16_alpha = 0.005
         self.smooth_alpha = 1.
 
-    def make_flow_pred_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1):
-        layer = nn.Sequential(
-            nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1),
-            nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1))
+    def make_flow_pred_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False):
+        if lite and (kernel_size > 3):
+            if kernel_size == 5:
+                layer = nn.Sequential(
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            else: # we only create 7x7 even when kernel_size > 7
+                layer = nn.Sequential(
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        else:
+            layer = nn.Sequential(
+                nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            
         return layer
 
     def make_flow_pred_decoder_layer(self, in_chn, out_chn):
@@ -146,12 +168,33 @@ class HJSuperSloMoMod(nn.Module):
             nn.LeakyReLU(inplace=True, negative_slope=0.1))
         return layer
 
-    def make_flow_interp_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1):
-        layer = nn.Sequential(
-            nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1),
-            nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1))
+    def make_flow_interp_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False):
+        if lite and (kernel_size > 3):
+            if kernel_size == 5:
+                layer = nn.Sequential(
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            else: # we only create 7x7 even when kernel_size > 7
+                layer = nn.Sequential(
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
+                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        else:
+            layer = nn.Sequential(
+                nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1),
+                nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            
         return layer
 
     def make_flow_interp_decoder_layer(self, in_chn, out_chn):
@@ -204,10 +247,10 @@ class HJSuperSloMoMod(nn.Module):
             flow_interp_motion_rep = torch.cat((
                 flow_interp_motion_rep,
                 flow_interp_decoder_out1,
-                F.upsample(flow_interp_decoder_out2, scale_factor= 2, mode='bilinear',align_corners=False),
-                F.upsample(flow_interp_decoder_out3, scale_factor= 4, mode='bilinear',align_corners=False),
-                F.upsample(flow_interp_decoder_out4, scale_factor= 8, mode='bilinear',align_corners=False),
-                F.upsample(flow_interp_decoder_out5, scale_factor= 16, mode='bilinear',align_corners=False),
+                F.interpolate(flow_interp_decoder_out2, scale_factor= 2, mode='bilinear',align_corners=False),
+                F.interpolate(flow_interp_decoder_out3, scale_factor= 4, mode='bilinear',align_corners=False),
+                F.interpolate(flow_interp_decoder_out4, scale_factor= 8, mode='bilinear',align_corners=False),
+                # F.interpolate(flow_interp_decoder_out5, scale_factor= 16, mode='bilinear',align_corners=False),
             ), 1)
 
         flow_interp_forward_flow = self.flow_interp_forward_out_layer(flow_interp_motion_rep)
@@ -258,10 +301,10 @@ class HJSuperSloMoMod(nn.Module):
             motion_rep = torch.cat((
                 motion_rep,
                 decoder_out1,
-                F.upsample(decoder_out2, scale_factor= 2, mode='bilinear',align_corners=False),
-                F.upsample(decoder_out3, scale_factor= 4, mode='bilinear',align_corners=False),
-                F.upsample(decoder_out4, scale_factor= 8, mode='bilinear',align_corners=False),
-                F.upsample(decoder_out5, scale_factor= 16, mode='bilinear',align_corners=False),
+                F.interpolate(decoder_out2, scale_factor= 2, mode='bilinear',align_corners=False),
+                F.interpolate(decoder_out3, scale_factor= 4, mode='bilinear',align_corners=False),
+                F.interpolate(decoder_out4, scale_factor= 8, mode='bilinear',align_corners=False),
+                # F.interpolate(decoder_out5, scale_factor= 16, mode='bilinear',align_corners=False),
             ), 1)
 
         uvf = self.forward_flow_conv(motion_rep)
