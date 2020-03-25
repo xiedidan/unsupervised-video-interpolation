@@ -80,7 +80,11 @@ parser.add_argument('--lr', '--learning_rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate')
 parser.add_argument('--lr_scheduler', default='MultiStepLR', type=str,
                     metavar='LR_Scheduler', help='Scheduler for learning' +
-                                                 ' rate (only ExponentialLR and MultiStepLR supported.')
+                                                 ' rate (only CosineAnnealingLR, ExponentialLR and MultiStepLR supported.')
+parser.add_argument('--lr_min', default=0.000001, type=float,
+                    help='min learning rate of cosine annealing')
+parser.add_argument('--lr_tmax', default=5000, type=float,
+                    help='t-max of cosine annealing')                    
 parser.add_argument('--lr_gamma', default=0.1, type=float,
                     help='learning rate will be multiplied by this gamma')
 parser.add_argument('--lr_step', default=200, type=int,

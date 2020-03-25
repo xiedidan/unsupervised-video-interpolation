@@ -34,6 +34,7 @@ import torch.backends.cudnn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
+import torchvision.models as backbone_models
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 tqdm.monitor_interval = 0
@@ -107,7 +108,7 @@ def parse_and_set_args(block):
     args.dataset_class = utils.module_to_dict(datasets)[args.dataset]
 
     if args.backbone != 'none':
-        args.backbone = utils.module_to_dict(models)[args.backbone]
+        args.backbone = utils.module_to_dict(backbone_models)[args.backbone]
     else:
         args.backbone = None
 
@@ -157,8 +158,8 @@ def get_train_and_valid_data_loaders(block, args):
         transform = data_transforms.Compose([
             # geometric augmentation
             data_transforms.NumpyToPILImage(),
-            data_transforms.RandomScaledCrop2D(crop_height=args.crop_size[0],
-                                         crop_width=args.crop_size[1], min_crop_ratio=1.),
+            data_transforms.RandomCrop2D(crop_height=args.crop_size[0],
+                                         crop_width=args.crop_size[1]),
             data_transforms.RandomVerticalFlip(prob=0.5),
             data_transforms.RandomHorizontalFlip(prob=0.5),
             data_transforms.PILImageToNumpy()
@@ -289,7 +290,10 @@ def get_learning_rate_scheduler(optimizer, block, args):
             else math.pow(10, -1 * np.searchsorted(args.lr_milestones, epoch_index + 1))
 
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_map)
-
+    elif args.lr_scheduler == 'CosineAnnealingLR':
+        block.log('Using CosineAnnealingLR decay learning rate scheduler with '
+                  '{} t-max and {} eta_min.'.format(args.lr_tmax, args.lr_min))
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.lr_tmax, eta_min=args.lr_min)
     else:
         raise NameError('Unknown {} learning rate scheduler'.format(
             args.lr_scheduler))
