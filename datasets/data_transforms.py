@@ -161,7 +161,7 @@ class RandomTranslate2D(object):
 
 
 class RandomCrop2D(object):
-    """A simple random 3D crop with a provided crop_size.
+    """A simple random 2D crop with a provided crop_size.
     """
     def __init__(self, crop_height, crop_width):
         self.crop_height = crop_height
