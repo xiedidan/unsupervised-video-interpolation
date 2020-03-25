@@ -31,7 +31,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import torchvision
 
 from .model_utils import MyResample2D
@@ -91,7 +90,7 @@ class Decoder(nn.Module):
             x = g1 * x + g2 * x
 
         return x
-
+    
 class HJSuperSloMoMod(nn.Module):
     def __init__(self, args, mean_pix=[109.93, 109.167, 101.455], in_channel=6):
         super(HJSuperSloMoMod, self).__init__()

@@ -34,7 +34,6 @@ import torch.backends.cudnn
 import torch.nn.parallel
 import torch.optim
 import torch.utils.data
-import torchvision.models as backbone_models
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 tqdm.monitor_interval = 0
@@ -108,7 +107,7 @@ def parse_and_set_args(block):
     args.dataset_class = utils.module_to_dict(datasets)[args.dataset]
 
     if args.backbone != 'none':
-        args.backbone = utils.module_to_dict(backbone_models)[args.backbone]
+        args.backbone = utils.module_to_dict(models)[args.backbone]
     else:
         args.backbone = None
 
