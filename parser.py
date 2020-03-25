@@ -69,8 +69,8 @@ parser.add_argument('--resume', default='', type=str, metavar='CHECKPOINT_PATH',
 # Resources
 parser.add_argument('--distributed_backend', default='nccl', type=str, metavar='DISTRIBUTED_BACKEND',
                     help='backend used for communication between processes.')
-parser.add_argument('-j', '--workers', default=4, type=int,
-                    help='number of data loader workers (default: 10)')
+parser.add_argument('-j', '--workers', default=16, type=int,
+                    help='number of data loader workers (default: 4)')
 parser.add_argument('-g', '--gpus', type=int, default=-1,
                     help='number of GPUs to use')
 parser.add_argument('--fp16', action='store_true', help='Enable mixed-precision training.')
@@ -83,7 +83,7 @@ parser.add_argument('--lr_scheduler', default='MultiStepLR', type=str,
                                                  ' rate (only CosineAnnealingLR, ExponentialLR and MultiStepLR supported.')
 parser.add_argument('--lr_min', default=0.000001, type=float,
                     help='min learning rate of cosine annealing')
-parser.add_argument('--lr_tmax', default=5000, type=float,
+parser.add_argument('--lr_tmax', default=20, type=float,
                     help='t-max of cosine annealing')                    
 parser.add_argument('--lr_gamma', default=0.1, type=float,
                     help='learning rate will be multiplied by this gamma')
@@ -97,7 +97,7 @@ parser.add_argument('--clip_gradients', default=-1.0, type=float,
                     help='If positive, clip the gradients by this value.')
 
 # Optimization hyper-parameters
-parser.add_argument('-b', '--batch_size', default=4, type=int, metavar='BATCH_SIZE',
+parser.add_argument('-b', '--batch_size', default=16, type=int, metavar='BATCH_SIZE',
                     help='mini-batch per gpu size (default : 4)')
 parser.add_argument('--wd', '--weight_decay', default=0.001, type=float, metavar='WEIGHT_DECAY',
                     help='weight_decay (default = 0.001)')
