@@ -94,6 +94,7 @@ class Decoder(nn.Module):
 class HJSuperSloMoMod(nn.Module):
     def __init__(self, args, mean_pix=[109.93, 109.167, 101.455], in_channel=6):
         super(HJSuperSloMoMod, self).__init__()
+
         self.is_output_flow = False
         
         self.hc = args.hc
@@ -109,7 +110,19 @@ class HJSuperSloMoMod(nn.Module):
             self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
             self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
             self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
-        else:
+            
+            self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
+
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
+
+            self.flow_pred_refine_layer = nn.Sequential(
+                nn.Conv2d(64, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        elif 'resnet' in self.backbone.__name__:
             self.flow_pred_backbone = self.backbone(pretrained=True, progress=True)
 
             self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 64, 7, 3, lite=self.lite_encoder)
@@ -117,18 +130,38 @@ class HJSuperSloMoMod(nn.Module):
             self.flow_pred_encoder_layer3= self.flow_pred_backbone.layer2
             self.flow_pred_encoder_layer4= self.flow_pred_backbone.layer3
             self.flow_pred_encoder_layer5 = self.flow_pred_backbone.layer4
+            
+            self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
 
-        self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
 
-        self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
-        self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse)
-        self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse)
-        self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse)
-        self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
+            self.flow_pred_refine_layer = nn.Sequential(
+                nn.Conv2d(96, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        elif 'shufflenet' in self.backbone.__name__:
+            self.flow_pred_backbone = self.backbone(pretrained=True, progress=True)
 
-        self.flow_pred_refine_layer = nn.Sequential(
-            nn.Conv2d(64 if self.backbone is None else 96, 32, 3, padding=1),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 24, 7, 3, lite=self.lite_encoder) # 24, 1/2
+            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(24, 24, 3, 1, lite=self.lite_encoder) # 24, 1/4
+            self.flow_pred_encoder_layer3 = self.flow_pred_backbone.stage2 # 116, 1/8
+            self.flow_pred_encoder_layer4 = self.flow_pred_backbone.stage3 # 232, 1/16
+            self.flow_pred_encoder_layer5 = self.flow_pred_backbone.stage4 # 464, 1/32
+            
+            self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(464, 512)
+
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(512+464, 256, scse=self.scse)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(256+232, 128, scse=self.scse)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(128+116, 64, scse=self.scse)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(64+24, 32, scse=self.scse)
+
+            self.flow_pred_refine_layer = nn.Sequential(
+                nn.Conv2d(32+24, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
         
         if not self.hc:
             self.forward_flow_conv = nn.Conv2d(32, 2, 1)
@@ -145,27 +178,59 @@ class HJSuperSloMoMod(nn.Module):
             self.flow_interp_encoder_layer3 = self.make_flow_interp_encoder_layer(64, 128)
             self.flow_interp_encoder_layer4 = self.make_flow_interp_encoder_layer(128, 256)
             self.flow_interp_encoder_layer5 = self.make_flow_interp_encoder_layer(256, 512)
-        else:
+            
+            self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
+
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
+
+            self.flow_interp_refine_layer = nn.Sequential(
+                nn.Conv2d(64, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        elif 'resnet' in self.backbone.__name__:
             self.flow_interp_backbone = self.backbone(pretrained=True, progress=True)
 
             self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 64, 7, 3, lite=self.lite_encoder)
-            self.flow_interp_encoder_layer2= self.flow_interp_backbone.layer1
-            self.flow_interp_encoder_layer3= self.flow_interp_backbone.layer2
-            self.flow_interp_encoder_layer4= self.flow_interp_backbone.layer3
+            self.flow_interp_encoder_layer2 = self.flow_interp_backbone.layer1
+            self.flow_interp_encoder_layer3 = self.flow_interp_backbone.layer2
+            self.flow_interp_encoder_layer4 = self.flow_interp_backbone.layer3
             self.flow_interp_encoder_layer5 = self.flow_interp_backbone.layer4
 
-        self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
+            self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
 
-        self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
-        self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse)
-        self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse)
-        self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse)
-        self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
 
-        self.flow_interp_refine_layer = nn.Sequential(
-            nn.Conv2d(64 if self.backbone is None else 96, 32, 3, padding=1),
-            nn.LeakyReLU(inplace=True, negative_slope=0.1))
-        
+            self.flow_interp_refine_layer = nn.Sequential(
+                nn.Conv2d(96, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+        elif 'shufflenet' in self.backbone.__name__:
+            self.flow_interp_backbone = self.backbone(pretrained=True, progress=True)
+
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 24, 7, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer2= self.make_flow_interp_encoder_layer(24, 24, 5, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer3= self.flow_interp_backbone.stage2
+            self.flow_interp_encoder_layer4= self.flow_interp_backbone.stage3
+            self.flow_interp_encoder_layer5 = self.flow_interp_backbone.stage4
+
+            self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(464, 512)
+
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(512+464, 256, scse=self.scse)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(256+232, 128, scse=self.scse)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(128+116, 64, scse=self.scse)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(64+24, 32, scse=self.scse)
+
+            self.flow_interp_refine_layer = nn.Sequential(
+                nn.Conv2d(32+24, 32, 3, padding=1),
+                nn.LeakyReLU(inplace=True, negative_slope=0.1))
+            
         if not self.hc:
             self.flow_interp_forward_out_layer = nn.Conv2d(32, 2, 1)
             self.flow_interp_backward_out_layer = nn.Conv2d(32, 2, 1)
