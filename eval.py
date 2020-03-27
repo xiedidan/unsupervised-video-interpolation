@@ -183,6 +183,9 @@ def evaluate(args, val_loader, model, num_interp, epoch, block):
             batch_size, _, _, _ = inputs[0].shape
             input_filenames = batch['input_files'][1:-1]
             in_height, in_width = batch['ishape']
+            
+            in_height = in_height[0]
+            in_width = in_width[0]
 
             for b in range(batch_size):
                 first_target = (input_images[0][b].data.cpu().numpy().transpose(1, 2, 0)).astype(np.uint8)

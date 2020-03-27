@@ -158,8 +158,8 @@ def get_train_and_valid_data_loaders(block, args):
         transform = data_transforms.Compose([
             # geometric augmentation
             data_transforms.NumpyToPILImage(),
-            data_transforms.RandomCrop2D(crop_height=args.crop_size[0],
-                                         crop_width=args.crop_size[1]),
+            data_transforms.RandomScaledCrop2D(crop_height=args.crop_size[0],
+                                         crop_width=args.crop_size[1], min_crop_ratio=1.0),
             data_transforms.RandomVerticalFlip(prob=0.5),
             data_transforms.RandomHorizontalFlip(prob=0.5),
             data_transforms.PILImageToNumpy()
