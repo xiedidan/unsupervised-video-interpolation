@@ -35,6 +35,19 @@ import torchvision
 
 from .model_utils import MyResample2D
 
+class FactoriedConv2d(nn.Module):
+    def __init__(self, input_channels, output_channels, kernel_size=3, padding=1):
+        super(FactoriedConv2d, self).__init__()
+
+        self.conv1 = nn.Conv2d(input_channels, output_channels, (kernel_size, 1), (padding, 0))
+        self.conv2 = nn.Conv2d(input_channels, output_channels, (1, kernel_size), (0, padding))
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+
+        return x
+
 class sSE(nn.Module):
     def __init__(self, out_channels):
         super(sSE, self).__init__()
@@ -64,16 +77,19 @@ class cSE(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, in_chn, out_chn, scse=False):
+    def __init__(self, in_chn, out_chn, scse=False, factorize=False):
         super(Decoder, self).__init__()
 
         self.scse = scse
+        self.factorize = factorize
+
+        conv = FactoriedConv2d if self.factorize else nn.Conv2d
 
         self.layer = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-            nn.Conv2d(in_chn, out_chn, 3, padding=1),
+            conv(in_chn, out_chn, 3, padding=1),
             nn.LeakyReLU(inplace=True, negative_slope=0.1),
-            nn.Conv2d(out_chn, out_chn, 3, padding=1),
+            conv(out_chn, out_chn, 3, padding=1),
             nn.LeakyReLU(inplace=True, negative_slope=0.1))
 
         if self.scse:
@@ -101,23 +117,24 @@ class HJSuperSloMoMod(nn.Module):
         self.lite_encoder = args.lite_encoder
         self.scse = args.scse
         self.backbone = args.backbone
+        self.factorize = args.factorize
         
         # --------------------- encoder --------------------
         # conv1
         if self.backbone is None:
-            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder)
-            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
+            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder), factorize=self.factorize
             self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
             self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
             self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
             
             self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
 
-            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
-            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse)
-            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse)
-            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse)
-            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_pred_refine_layer = nn.Sequential(
                 nn.Conv2d(64, 32, 3, padding=1),
@@ -125,7 +142,7 @@ class HJSuperSloMoMod(nn.Module):
         elif 'resnet' in self.backbone.__name__:
             self.flow_pred_backbone = self.backbone(pretrained=True, progress=True)
 
-            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 64, 7, 3, lite=self.lite_encoder)
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 64, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
             self.flow_pred_encoder_layer2= self.flow_pred_backbone.layer1
             self.flow_pred_encoder_layer3= self.flow_pred_backbone.layer2
             self.flow_pred_encoder_layer4= self.flow_pred_backbone.layer3
@@ -133,11 +150,11 @@ class HJSuperSloMoMod(nn.Module):
             
             self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(512, 512)
 
-            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
-            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse)
-            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse)
-            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse)
-            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse)
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(1024, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(512, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(256, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(128, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_pred_refine_layer = nn.Sequential(
                 nn.Conv2d(96, 32, 3, padding=1),
@@ -145,19 +162,19 @@ class HJSuperSloMoMod(nn.Module):
         elif 'shufflenet' in self.backbone.__name__:
             self.flow_pred_backbone = self.backbone(pretrained=True, progress=True)
 
-            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 24, 7, 3, lite=self.lite_encoder) # 24, 1/2
-            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(24, 24, 3, 1, lite=self.lite_encoder) # 24, 1/4
+            self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 24, 7, 3, lite=self.lite_encoder, factorize=self.factorize) # 24, 1/2
+            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(24, 24, 3, 1, lite=self.lite_encoder, factorize=self.factorize) # 24, 1/4
             self.flow_pred_encoder_layer3 = self.flow_pred_backbone.stage2 # 116, 1/8
             self.flow_pred_encoder_layer4 = self.flow_pred_backbone.stage3 # 232, 1/16
             self.flow_pred_encoder_layer5 = self.flow_pred_backbone.stage4 # 464, 1/32
             
             self.flow_pred_bottleneck = self.make_flow_pred_encoder_layer(464, 512)
 
-            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse)
-            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(512+464, 256, scse=self.scse)
-            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(256+232, 128, scse=self.scse)
-            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(128+116, 64, scse=self.scse)
-            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(64+24, 32, scse=self.scse)
+            self.flow_pred_decoder_layer5 = self.make_flow_pred_decoder_layer(512, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer4 = self.make_flow_pred_decoder_layer(512+464, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer3 = self.make_flow_pred_decoder_layer(256+232, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer2 = self.make_flow_pred_decoder_layer(128+116, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_pred_decoder_layer1 = self.make_flow_pred_decoder_layer(64+24, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_pred_refine_layer = nn.Sequential(
                 nn.Conv2d(32+24, 32, 3, padding=1),
@@ -173,19 +190,19 @@ class HJSuperSloMoMod(nn.Module):
 
         # -------------- flow interpolation encoder-decoder --------------
         if self.backbone is None:
-            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3, lite=self.lite_encoder)
-            self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 32, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
+            self.flow_interp_encoder_layer2 = self.make_flow_interp_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder, factorize=self.factorize)
             self.flow_interp_encoder_layer3 = self.make_flow_interp_encoder_layer(64, 128)
             self.flow_interp_encoder_layer4 = self.make_flow_interp_encoder_layer(128, 256)
             self.flow_interp_encoder_layer5 = self.make_flow_interp_encoder_layer(256, 512)
             
             self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
 
-            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
-            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse)
-            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse)
-            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse)
-            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_interp_refine_layer = nn.Sequential(
                 nn.Conv2d(64, 32, 3, padding=1),
@@ -193,7 +210,7 @@ class HJSuperSloMoMod(nn.Module):
         elif 'resnet' in self.backbone.__name__:
             self.flow_interp_backbone = self.backbone(pretrained=True, progress=True)
 
-            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 64, 7, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 64, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
             self.flow_interp_encoder_layer2 = self.flow_interp_backbone.layer1
             self.flow_interp_encoder_layer3 = self.flow_interp_backbone.layer2
             self.flow_interp_encoder_layer4 = self.flow_interp_backbone.layer3
@@ -201,11 +218,11 @@ class HJSuperSloMoMod(nn.Module):
 
             self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(512, 512)
 
-            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
-            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse)
-            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse)
-            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse)
-            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse)
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(1024, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(512, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(256, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(128, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_interp_refine_layer = nn.Sequential(
                 nn.Conv2d(96, 32, 3, padding=1),
@@ -213,19 +230,19 @@ class HJSuperSloMoMod(nn.Module):
         elif 'shufflenet' in self.backbone.__name__:
             self.flow_interp_backbone = self.backbone(pretrained=True, progress=True)
 
-            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 24, 7, 3, lite=self.lite_encoder)
-            self.flow_interp_encoder_layer2= self.make_flow_interp_encoder_layer(24, 24, 5, 3, lite=self.lite_encoder)
+            self.flow_interp_encoder_layer1 = self.make_flow_interp_encoder_layer(16, 24, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
+            self.flow_interp_encoder_layer2= self.make_flow_interp_encoder_layer(24, 24, 5, 3, lite=self.lite_encoder, factorize=self.factorize)
             self.flow_interp_encoder_layer3= self.flow_interp_backbone.stage2
             self.flow_interp_encoder_layer4= self.flow_interp_backbone.stage3
             self.flow_interp_encoder_layer5 = self.flow_interp_backbone.stage4
 
             self.flow_interp_bottleneck = self.make_flow_interp_encoder_layer(464, 512)
 
-            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse)
-            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(512+464, 256, scse=self.scse)
-            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(256+232, 128, scse=self.scse)
-            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(128+116, 64, scse=self.scse)
-            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(64+24, 32, scse=self.scse)
+            self.flow_interp_decoder_layer5 = self.make_flow_interp_decoder_layer(1024, 512, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer4 = self.make_flow_interp_decoder_layer(512+464, 256, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer3 = self.make_flow_interp_decoder_layer(256+232, 128, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer2 = self.make_flow_interp_decoder_layer(128+116, 64, scse=self.scse, factorize=self.factorize)
+            self.flow_interp_decoder_layer1 = self.make_flow_interp_decoder_layer(64+24, 32, scse=self.scse, factorize=self.factorize)
 
             self.flow_interp_refine_layer = nn.Sequential(
                 nn.Conv2d(32+24, 32, 3, padding=1),
@@ -269,71 +286,75 @@ class HJSuperSloMoMod(nn.Module):
         self.vgg16_alpha = 0.005
         self.smooth_alpha = 1.
 
-    def make_flow_pred_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False):
+    def make_flow_pred_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False, factorize=False):
+        conv = FactoriedConv2d if factorize else nn.Conv2d
+
         if lite and (kernel_size > 3):
             if kernel_size == 5:
                 layer = nn.Sequential(
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1))
             else: # we only create 7x7 even when kernel_size > 7
                 layer = nn.Sequential(
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1))
         else:
             layer = nn.Sequential(
-                nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
+                conv(in_chn, out_chn, kernel_size, padding=padding),
                 nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
+                conv(out_chn, out_chn, kernel_size, padding=padding),
                 nn.LeakyReLU(inplace=True, negative_slope=0.1))
             
         return layer
 
-    def make_flow_pred_decoder_layer(self, in_chn, out_chn, scse=False):
-        layer = Decoder(in_chn, out_chn, scse)
+    def make_flow_pred_decoder_layer(self, in_chn, out_chn, scse=False, factorize=False):
+        layer = Decoder(in_chn, out_chn, scse, factorize)
 
         return layer
 
-    def make_flow_interp_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False):
+    def make_flow_interp_encoder_layer(self, in_chn, out_chn, kernel_size=3, padding=1, lite=False, factorize=False):
+        conv = FactoriedConv2d if factorize else nn.Conv2d
+
         if lite and (kernel_size > 3):
             if kernel_size == 5:
                 layer = nn.Sequential(
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1))
             else: # we only create 7x7 even when kernel_size > 7
                 layer = nn.Sequential(
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, in_chn, 3, padding=1),
-                    nn.Conv2d(in_chn, out_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, in_chn, 3, padding=1),
+                    conv(in_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
-                    nn.Conv2d(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
+                    conv(out_chn, out_chn, 3, padding=1),
                     nn.LeakyReLU(inplace=True, negative_slope=0.1))
         else:
             layer = nn.Sequential(
-                nn.Conv2d(in_chn, out_chn, kernel_size, padding=padding),
+                conv(in_chn, out_chn, kernel_size, padding=padding),
                 nn.LeakyReLU(inplace=True, negative_slope=0.1),
-                nn.Conv2d(out_chn, out_chn, kernel_size, padding=padding),
+                conv(out_chn, out_chn, kernel_size, padding=padding),
                 nn.LeakyReLU(inplace=True, negative_slope=0.1))
             
         return layer
 
-    def make_flow_interp_decoder_layer(self, in_chn, out_chn, scse=False):
-        layer = Decoder(in_chn, out_chn, scse)
+    def make_flow_interp_decoder_layer(self, in_chn, out_chn, scse=False, factorize=False):
+        layer = Decoder(in_chn, out_chn, scse, factorize)
 
         return layer
 

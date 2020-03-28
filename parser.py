@@ -186,3 +186,4 @@ parser.add_argument('--backbone', metavar='BACKBONE', default='none',
                     help='backbone architecture: ' +
                          ' | '.join(backbone_names) +
                          ' (default: none)')
+parser.add_argument('--factorize', action='store_true', help='Use factorized conv in non-backbone layers.')
