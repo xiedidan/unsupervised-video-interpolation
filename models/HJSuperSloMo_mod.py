@@ -39,8 +39,8 @@ class FactoriedConv2d(nn.Module):
     def __init__(self, input_channels, output_channels, kernel_size=3, padding=1):
         super(FactoriedConv2d, self).__init__()
 
-        self.conv1 = nn.Conv2d(input_channels, output_channels, (kernel_size, 1), (padding, 0))
-        self.conv2 = nn.Conv2d(input_channels, output_channels, (1, kernel_size), (0, padding))
+        self.conv1 = nn.Conv2d(input_channels, output_channels, (kernel_size, 1), padding=(padding, 0))
+        self.conv2 = nn.Conv2d(output_channels, output_channels, (1, kernel_size), padding=(0, padding))
 
     def forward(self, x):
         x = self.conv1(x)
@@ -123,7 +123,7 @@ class HJSuperSloMoMod(nn.Module):
         # conv1
         if self.backbone is None:
             self.flow_pred_encoder_layer1 = self.make_flow_pred_encoder_layer(in_channel, 32, 7, 3, lite=self.lite_encoder, factorize=self.factorize)
-            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder), factorize=self.factorize
+            self.flow_pred_encoder_layer2 = self.make_flow_pred_encoder_layer(32, 64, 5, 2, lite=self.lite_encoder, factorize=self.factorize)
             self.flow_pred_encoder_layer3 = self.make_flow_pred_encoder_layer(64, 128)
             self.flow_pred_encoder_layer4 = self.make_flow_pred_encoder_layer(128, 256)
             self.flow_pred_encoder_layer5 = self.make_flow_pred_encoder_layer(256, 512)
