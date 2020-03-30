@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 .torch/
+
 result_folder/
 __pycache__/
 *.py[cod]

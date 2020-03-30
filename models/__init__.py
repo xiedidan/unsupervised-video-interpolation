@@ -29,3 +29,4 @@ from .CycleHJSuperSloMo import *
 from .HJSuperSloMo_mod import *
 from .resnet_bnfree_lrelu import *
 from .shufflenetv2_bnfree_lrelu import *
+from .HJSuperSloMo_shelf import *

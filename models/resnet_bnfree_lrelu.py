@@ -47,7 +47,7 @@ class BasicBlock(nn.Module):
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride)
         # self.bn1 = norm_layer(planes)
-        self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+        self.relu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.conv2 = conv3x3(planes, planes)
         # self.bn2 = norm_layer(planes)
         self.downsample = downsample
@@ -94,7 +94,7 @@ class Bottleneck(nn.Module):
         # self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
         # self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+        self.relu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.downsample = downsample
         self.stride = stride
 
@@ -125,13 +125,13 @@ class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
+                 norm_layer=None, input_channel=6, first_stride=2, first_lite=False, inplanes=64, stride=2):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
-        self.inplanes = 64
+        self.inplanes = inplanes
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -142,17 +142,24 @@ class ResNet(nn.Module):
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
-                               bias=True)
+        if not first_lite:
+            self.conv1 = nn.Conv2d(input_channel, self.inplanes, kernel_size=7, stride=first_stride, padding=3,
+                                   bias=True)
+        else:
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(input_channel, input_channel, kernel_size=3, stride=first_stride//2, padding=1, bias=True),
+                nn.Conv2d(input_channel, self.inplanes, kernel_size=3, stride=first_stride//2, padding=1, bias=True),
+                nn.Conv2d(self.inplanes, 16, kernel_size=3, stride=1, padding=1, bias=True)
+            )
         # self.bn1 = norm_layer(self.inplanes)
-        self.relu = nn.LeakyReLU(negative_slope=0.01, inplace=True)
+        self.relu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=stride,
                                        dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=stride,
                                        dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=stride,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -226,7 +233,12 @@ def _resnet(arch, block, layers, pretrained, progress, **kwargs):
         state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)
         
-        print(model.load_state_dict(state_dict, strict=False))
+        new_state_dict = model.state_dict()
+        for key in state_dict.keys():
+            if 'conv1' not in key:
+                new_state_dict[key] = state_dict[key]
+        
+        print(model.load_state_dict(new_state_dict, strict=False))
     return model
 
 
