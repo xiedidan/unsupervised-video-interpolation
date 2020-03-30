@@ -27,9 +27,25 @@ class BaseNet(nn.Module):
 
         # copying modules from pretrained models
         if backbone == 'resnet18':
-            self.pretrained = resnet18(pretrained=True, norm_layer=norm_layer, input_channel=input_channel, first_stride=4, first_lite=True, inplanes=16, stride=2)
+            self.pretrained = resnet18(
+                pretrained=True,
+                norm_layer=norm_layer,
+                input_channel=input_channel,
+                first_stride=4,
+                first_lite=True,
+                inplanes=16,
+                stride=2
+            )
         elif backbone == 'resnet34':
-            self.pretrained = resnet34(pretrained=True, norm_layer=norm_layer, input_channel=input_channel, first_stride=4, first_lite=True, inplanes=16, stride=2)
+            self.pretrained = resnet34(
+                pretrained=True,
+                norm_layer=norm_layer,
+                input_channel=input_channel,
+                first_stride=4,
+                first_lite=True,
+                inplanes=16,
+                stride=2
+            )
         else:
             raise RuntimeError('Unknown backbone: {}'.format(backbone))
 

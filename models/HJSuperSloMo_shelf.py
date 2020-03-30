@@ -42,7 +42,7 @@ class ResSubPixelSR(nn.Module):
         super(ResSubPixelSR, self).__init__()
         
         self.r = r
-        self.conv = nn.Conv2d(input_channel, self.r*self.r*output_channel, kernel_size, padding=1)
+        self.conv = nn.Conv2d(input_channel, self.r*self.r*output_channel, kernel_size, padding=kernel_size//2)
         self.shortcut_conv = nn.Conv2d(shortcut_channel, input_channel, 1, padding=0)
         self.ps = nn.PixelShuffle(self.r)
         
@@ -55,6 +55,21 @@ class ResSubPixelSR(nn.Module):
         
         return x
 
+class Refiner(nn.Module):
+    def __init__(self, input_chan, output_chan, shortcut_chan, kernel_size=3):
+        super(Refiner, self).__init__()
+
+        self.shortcut_conv = nn.Conv2d(shortcut_chan, input_chan, kernel_size, padding=kernel_size//2)
+        self.conv = nn.Conv2d(input_chan, output_chan, kernel_size, padding=kernel_size//2)
+
+    def forward(self, shortcut, x):
+        s = self.shortcut_conv(shortcut)
+
+        x = s + x
+        x = self.conv(x)
+
+        return x
+
 class HJSuperSloMoShelf(nn.Module):
     def __init__(self, args, mean_pix=[109.93, 109.167, 101.455], in_channel=6):
         super(HJSuperSloMoShelf, self).__init__()
@@ -64,14 +79,22 @@ class HJSuperSloMoShelf(nn.Module):
 
         self.forward_flow_conv = ResSubPixelSR(4, 17, 2, 16)
         self.backward_flow_conv = ResSubPixelSR(4, 17, 2, 16)
+
+        self.forward_flow_refine = Refiner(2, 2, 6, 3)
+        self.backward_flow_refine = Refiner(2, 2, 6, 3)
         
         self.flow_interp = get_shelf_unet(input_channel=16)
 
         self.flow_interp_forward_out_layer = ResSubPixelSR(4, 17, 2, 16)
         self.flow_interp_backward_out_layer = ResSubPixelSR(4, 17, 2, 16)
 
+        self.forward_interp_refine = Refiner(2, 2, 16, 3)
+        self.backward_interp_refine = Refiner(2, 2, 16, 3)
+
         # visibility
         self.flow_interp_vis_layer = ResSubPixelSR(4, 17, 1, 16)
+
+        self.vis_refine = Refiner(1, 1, 16, 3)
 
         self.resample2d_train = MyResample2D(args.crop_size[1], args.crop_size[0])
 
@@ -104,7 +127,11 @@ class HJSuperSloMoShelf(nn.Module):
         flow_interp_forward_flow = self.flow_interp_forward_out_layer(flow_interp_x0, flow_interp_output)
         flow_interp_backward_flow = self.flow_interp_backward_out_layer(flow_interp_x0, flow_interp_output)
 
+        flow_interp_forward_flow = self.forward_interp_refine(in_data, flow_interp_forward_flow)
+        flow_interp_backward_flow = self.forward_interp_refine(in_data, flow_interp_backward_flow)
+
         flow_interp_vis_map = self.flow_interp_vis_layer(flow_interp_x0, flow_interp_output)
+        flow_interp_vis_map = self.vis_refine(in_data, flow_interp_vis_map)
         flow_interp_vis_map = torch.sigmoid(flow_interp_vis_map)
 
         return flow_interp_forward_flow, flow_interp_backward_flow, flow_interp_vis_map
@@ -113,8 +140,11 @@ class HJSuperSloMoShelf(nn.Module):
         flow_pred_x0, flow_pred_output = self.flow_pred(x)
 
         uvf = self.forward_flow_conv(flow_pred_x0, flow_pred_output)
-        uvb = self.backward_flow_conv(flow_pred_x0, flow_pred_output)
+        uvf = self.forward_flow_refine(x, uvf)
 
+        uvb = self.backward_flow_conv(flow_pred_x0, flow_pred_output)
+        uvb = self.backward_flow_refine(x, uvb)
+ 
         return uvf, uvb
 
     def forward(self, inputs, target_index):
