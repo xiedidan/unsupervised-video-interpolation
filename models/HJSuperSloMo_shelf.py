@@ -27,6 +27,8 @@
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -34,9 +36,92 @@ import torch.nn.functional as F
 
 import torchvision
 
+os.environ['PYTHON_EGG_CACHE'] = 'tmp/' # a writable directory 
+from correlation_package.correlation import Correlation
+
 from .model_utils import MyResample2D
 from .shelfnet import get_shelf_unet
 
+class CostVolumn(nn.Module):
+    def __init__(self, im_channel=3, feat_channel=16, max_displacement=4, flow_est_channel=32):
+        super(CostVolumn, self).__init__()
+        
+        corr_channel = (2 * max_displacement + 1) ** 2
+        trans_channel = feat_channel + 2 + corr_channel
+        dense_channel = flow_est_channel + trans_channel
+        
+        self.conv = nn.Conv2d(im_channel, feat_channel, 3, padding=1)
+        self.corr = Correlation(
+            pad_size=max_displacement,
+            kernel_size=1,
+            max_displacement=max_displacement,
+            stride1=1,
+            stride2=1,
+            corr_multiply=1
+        )
+        self.relu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        self.trans = nn.Conv2d(trans_channel, flow_est_channel, 3, padding=1)
+        self.flow_est = nn.Conv2d(dense_channel, 2, 3, padding=1)
+    
+    def forward(self, ims, forward_flow, backward_flow):
+        im1 = ims[:, :3, :, :]
+        im2 = ims[:, 3:6, :, :]
+        
+        f1 = self.conv(im1)
+        f2 = self.conv(im2)
+        
+        flow_f1 = self.warp(f2, forward_flow)
+        flow_f2 = self.warp(f1, backward_flow)
+        
+        corr1 = self.corr(f1, flow_f1)
+        corr1 = self.relu(corr1)
+        
+        corr2 = self.corr(f2, flow_f2)
+        corr2 = self.relu(corr2)
+        
+        x1 = torch.cat((corr1, f1, backward_flow), 1)
+        x2 = torch.cat((corr2, f2, forward_flow), 1)
+        
+        t1 = self.trans(x1)
+        t2 = self.trans(x2)
+        
+        flow1 = self.flow_est(torch.cat((t1, x1), 1))
+        flow2 = self.flow_est(torch.cat((t2, x2), 1))
+        
+        return torch.cat((flow1, flow2), 1)
+        
+    def warp(self, x, flo):
+        """
+        warp an image/tensor (im2) back to im1, according to the optical flow
+        x: [B, C, H, W] (im2)
+        flo: [B, 2, H, W] flow
+        """
+        B, C, H, W = x.size()
+        # mesh grid 
+        xx = torch.arange(0, W).view(1,-1).repeat(H,1)
+        yy = torch.arange(0, H).view(-1,1).repeat(1,W)
+        xx = xx.view(1,1,H,W).repeat(B,1,1,1)
+        yy = yy.view(1,1,H,W).repeat(B,1,1,1)
+        grid = torch.cat((xx,yy),1).float()
+
+        if x.is_cuda:
+            grid = grid.cuda()
+        vgrid = torch.Tensor(grid) + flo
+
+        # scale grid to [-1,1] 
+        vgrid[:,0,:,:] = 2.0*vgrid[:,0,:,:].clone() / max(W-1,1)-1.0
+        vgrid[:,1,:,:] = 2.0*vgrid[:,1,:,:].clone() / max(H-1,1)-1.0
+
+        vgrid = vgrid.permute(0,2,3,1)        
+        output = nn.functional.grid_sample(x, vgrid)
+        mask = torch.autograd.Variable(torch.ones(x.size())).cuda()
+        mask = nn.functional.grid_sample(mask, vgrid)
+        
+        mask[mask<0.9999] = 0
+        mask[mask>0] = 1
+        
+        return output*mask
+    
 class ResSubPixelSR(nn.Module):
     def __init__(self, r, input_channel, output_channel, shortcut_channel, kernel_size=3):
         super(ResSubPixelSR, self).__init__()
@@ -80,16 +165,14 @@ class HJSuperSloMoShelf(nn.Module):
         self.forward_flow_conv = ResSubPixelSR(4, 17, 2, 16)
         self.backward_flow_conv = ResSubPixelSR(4, 17, 2, 16)
 
-        self.forward_flow_refine = Refiner(2, 2, 6, 3)
-        self.backward_flow_refine = Refiner(2, 2, 6, 3)
+        # self.flow_refine = CostVolumn()
         
         self.flow_interp = get_shelf_unet(input_channel=16)
 
         self.flow_interp_forward_out_layer = ResSubPixelSR(4, 17, 2, 16)
         self.flow_interp_backward_out_layer = ResSubPixelSR(4, 17, 2, 16)
 
-        self.forward_interp_refine = Refiner(2, 2, 16, 3)
-        self.backward_interp_refine = Refiner(2, 2, 16, 3)
+        # self.interp_refine = CostVolumn()
 
         # visibility
         self.flow_interp_vis_layer = ResSubPixelSR(4, 17, 1, 16)
@@ -126,12 +209,18 @@ class HJSuperSloMoShelf(nn.Module):
 
         flow_interp_forward_flow = self.flow_interp_forward_out_layer(flow_interp_x0, flow_interp_output)
         flow_interp_backward_flow = self.flow_interp_backward_out_layer(flow_interp_x0, flow_interp_output)
-
-        flow_interp_forward_flow = self.forward_interp_refine(in_data, flow_interp_forward_flow)
-        flow_interp_backward_flow = self.forward_interp_refine(in_data, flow_interp_backward_flow)
+        
+        '''
+        ims = in_data[:, :6, :, :]
+        flow_interp_forward_flow, flow_interp_backward_flow = self.interp_refine(
+            ims,
+            flow_interp_forward_flow,
+            flow_interp_backward_flow
+        )
+        '''
 
         flow_interp_vis_map = self.flow_interp_vis_layer(flow_interp_x0, flow_interp_output)
-        flow_interp_vis_map = self.vis_refine(in_data, flow_interp_vis_map)
+        # flow_interp_vis_map = self.vis_refine(in_data, flow_interp_vis_map)
         flow_interp_vis_map = torch.sigmoid(flow_interp_vis_map)
 
         return flow_interp_forward_flow, flow_interp_backward_flow, flow_interp_vis_map
@@ -140,10 +229,12 @@ class HJSuperSloMoShelf(nn.Module):
         flow_pred_x0, flow_pred_output = self.flow_pred(x)
 
         uvf = self.forward_flow_conv(flow_pred_x0, flow_pred_output)
-        uvf = self.forward_flow_refine(x, uvf)
-
         uvb = self.backward_flow_conv(flow_pred_x0, flow_pred_output)
-        uvb = self.backward_flow_refine(x, uvb)
+        
+        '''
+        ims = x[:, :6, :, :]
+        uvf, uvb = self.flow_refine(ims, uvf, uvb)
+        '''
  
         return uvf, uvb
 
