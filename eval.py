@@ -214,7 +214,7 @@ def evaluate(args, val_loader, model, num_interp, epoch, block):
 
                     # write_images
                     if args.write_images:
-                        tmp_filename = os.path.join(args.save_root, "%s-%02d-%s.png" % (gt_filename[:-4], (index + 1), args.post_fix))
+                        tmp_filename = os.path.join(args.save_root, "%s_%02d_%s.png" % (gt_filename[:-4], (index + 1), args.post_fix))
                         os.makedirs(os.path.dirname(tmp_filename), exist_ok=True)
                         imsave(tmp_filename, pred_image)
 
@@ -227,10 +227,10 @@ def evaluate(args, val_loader, model, num_interp, epoch, block):
                         except AttributeError:
                             raise AttributeError("Error in ffmpeg video creation. Inconsistent image size.")
                 if args.write_images:
-                    tmp_filename = os.path.join(args.save_root, "%s-%02d-%s.png" % (gt_filename[:-4], 0, "ground_truth"))
+                    tmp_filename = os.path.join(args.save_root, "%s_%02d_%s.png" % (gt_filename[:-4], 0, "ground_truth"))
                     os.makedirs(os.path.dirname(tmp_filename), exist_ok=True)
                     imsave(tmp_filename, first_target)
-                    tmp_filename = os.path.join(args.save_root, "%s-%02d-%s.png" % (gt_filename[:-4], num_interp+1, "ground_truth"))
+                    tmp_filename = os.path.join(args.save_root, "%s_%02d_%s.png" % (gt_filename[:-4], num_interp+1, "ground_truth"))
                     imsave(tmp_filename, second_target)
             if (i + 1) >= num_batches:
                 break

@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 .torch/
+pretrained_models/
 
 result_folder/
 __pycache__/
