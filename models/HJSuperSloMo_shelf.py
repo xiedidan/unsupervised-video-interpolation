@@ -37,11 +37,12 @@ import torch.nn.functional as F
 import torchvision
 
 os.environ['PYTHON_EGG_CACHE'] = 'tmp/' # a writable directory 
-from correlation_package.correlation import Correlation
+# from correlation_package.correlation import Correlation
 
 from .model_utils import MyResample2D
 from .shelfnet import get_shelf_unet
 
+'''
 class CostVolumn(nn.Module):
     def __init__(self, im_channel=3, feat_channel=16, max_displacement=4, flow_est_channel=32):
         super(CostVolumn, self).__init__()
@@ -121,7 +122,8 @@ class CostVolumn(nn.Module):
         mask[mask>0] = 1
         
         return output*mask
-    
+'''
+
 class ResSubPixelSR(nn.Module):
     def __init__(self, r, input_channel, output_channel, shortcut_channel, kernel_size=3):
         super(ResSubPixelSR, self).__init__()
