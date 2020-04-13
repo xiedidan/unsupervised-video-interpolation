@@ -124,6 +124,74 @@ class CostVolumn(nn.Module):
         return output*mask
 '''
 
+class Get_gradient(nn.Module):
+    def __init__(self):
+        super(Get_gradient, self).__init__()
+        kernel_v = [[0, -1, 0], 
+                    [0, 0, 0], 
+                    [0, 1, 0]]
+        kernel_h = [[0, 0, 0], 
+                    [-1, 0, 1], 
+                    [0, 0, 0]]
+        kernel_h = torch.FloatTensor(kernel_h).unsqueeze(0).unsqueeze(0)
+        kernel_v = torch.FloatTensor(kernel_v).unsqueeze(0).unsqueeze(0)
+        self.weight_h = nn.Parameter(data = kernel_h, requires_grad = False).cuda()
+        self.weight_v = nn.Parameter(data = kernel_v, requires_grad = False).cuda()
+
+    def forward(self, x):
+        x0 = x[:, 0]
+        x1 = x[:, 1]
+        x2 = x[:, 2]
+        x0_v = F.conv2d(x0.unsqueeze(1), self.weight_v, padding=2)
+        x0_h = F.conv2d(x0.unsqueeze(1), self.weight_h, padding=2)
+
+        x1_v = F.conv2d(x1.unsqueeze(1), self.weight_v, padding=2)
+        x1_h = F.conv2d(x1.unsqueeze(1), self.weight_h, padding=2)
+
+        x2_v = F.conv2d(x2.unsqueeze(1), self.weight_v, padding=2)
+        x2_h = F.conv2d(x2.unsqueeze(1), self.weight_h, padding=2)
+
+        x0 = torch.sqrt(torch.pow(x0_v, 2) + torch.pow(x0_h, 2) + 1e-6)
+        x1 = torch.sqrt(torch.pow(x1_v, 2) + torch.pow(x1_h, 2) + 1e-6)
+        x2 = torch.sqrt(torch.pow(x2_v, 2) + torch.pow(x2_h, 2) + 1e-6)
+
+        x = torch.cat([x0, x1, x2], dim=1)
+        return x
+
+class Get_gradient_nopadding(nn.Module):
+    def __init__(self):
+        super(Get_gradient_nopadding, self).__init__()
+        kernel_v = [[0, -1, 0], 
+                    [0, 0, 0], 
+                    [0, 1, 0]]
+        kernel_h = [[0, 0, 0], 
+                    [-1, 0, 1], 
+                    [0, 0, 0]]
+        kernel_h = torch.FloatTensor(kernel_h).unsqueeze(0).unsqueeze(0)
+        kernel_v = torch.FloatTensor(kernel_v).unsqueeze(0).unsqueeze(0)
+        self.weight_h = nn.Parameter(data = kernel_h, requires_grad = False).cuda()
+        self.weight_v = nn.Parameter(data = kernel_v, requires_grad = False).cuda()
+
+    def forward(self, x):
+        x0 = x[:, 0]
+        x1 = x[:, 1]
+        x2 = x[:, 2]
+        x0_v = F.conv2d(x0.unsqueeze(1), self.weight_v, padding = 1)
+        x0_h = F.conv2d(x0.unsqueeze(1), self.weight_h, padding = 1)
+
+        x1_v = F.conv2d(x1.unsqueeze(1), self.weight_v, padding = 1)
+        x1_h = F.conv2d(x1.unsqueeze(1), self.weight_h, padding = 1)
+
+        x2_v = F.conv2d(x2.unsqueeze(1), self.weight_v, padding = 1)
+        x2_h = F.conv2d(x2.unsqueeze(1), self.weight_h, padding = 1)
+
+        x0 = torch.sqrt(torch.pow(x0_v, 2) + torch.pow(x0_h, 2) + 1e-6)
+        x1 = torch.sqrt(torch.pow(x1_v, 2) + torch.pow(x1_h, 2) + 1e-6)
+        x2 = torch.sqrt(torch.pow(x2_v, 2) + torch.pow(x2_h, 2) + 1e-6)
+
+        x = torch.cat([x0, x1, x2], dim=1)
+        return x
+
 class ResSubPixelSR(nn.Module):
     def __init__(self, r, input_channel, output_channel, shortcut_channel, kernel_size=3):
         super(ResSubPixelSR, self).__init__()
@@ -189,6 +257,15 @@ class HJSuperSloMoShelf(nn.Module):
 
         self.args = args
         self.scale = args.flow_scale
+        
+        # grad supervision
+        self.grad_supervision = args.grad_supervision
+        
+        if self.grad_supervision:
+            self.get_grad = Get_gradient()
+            self.grad_alpha = 0.8
+        else:
+            self.grad_alpha = 0.
 
         self.L1_loss = nn.L1Loss()
         self.L2_loss = nn.MSELoss()
@@ -306,10 +383,18 @@ class HJSuperSloMoShelf(nn.Module):
             self.L1_loss(uvf[:, :, :-1, :], uvf[:, :, 1:, :])
 
         losses['smooth_loss'] = smooth_bwd + smooth_fwd
+        
+        # grad supervision
+        if self.grad_supervision:
+            target_grad = self.get_grad(im_target)
+            out_grad = self.get_grad(im_t_out)
+            
+            losses['grad_loss'] = self.L1_loss(out_grad, target_grad)
 
         # Coefficients for total loss determined empirically using a validation set
         losses['tot'] = self.pix_alpha * losses['pix_loss'] + self.warp_alpha * losses['warp_loss'] \
-            + self.vgg16_alpha * losses['vgg16_loss'] + self.smooth_alpha * losses['smooth_loss']
+            + self.vgg16_alpha * losses['vgg16_loss'] + self.smooth_alpha * losses['smooth_loss'] \
+            + self.grad_alpha * losses['grad_loss']
 
         # Converts back to (0, 255) range
         im_t_out = im_t_out + self.mean_pix
