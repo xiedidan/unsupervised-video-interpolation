@@ -199,9 +199,9 @@ class ShelfTail(nn.Module):
 
         return out
 
-def get_shelf_unet(**kwargs):
+def get_shelf_unet(n_joints, **kwargs):
     model = ShelfNet(
-        n_joints=17,
+        n_joints,
         backbone='resnet18',
         extra_block=False,
         tail_fuse_method='pyramid',

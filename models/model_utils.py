@@ -43,6 +43,18 @@ import torch.nn.functional as F
 # from flownet2_pytorch.networks.resample2d_package.resample2d import Resample2d
 #
 
+class Factorized_Conv3d(nn.Module):
+    def __init__(self, input_channel, output_channel, stride=1):
+        super(Factorized_Conv3d, self).__init__()
+        
+        self.conv = nn.Sequential(
+            nn.Conv2d(input_channel, input_channel, 3, padding=1, stride=stride),
+            nn.Conv2d(input_channel, output_channel, 1, padding=0),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        )
+        
+    def forward(self, x):
+        return self.conv(x)
 
 class MyResample2D(nn.Module):
     def __init__(self, width, height):
