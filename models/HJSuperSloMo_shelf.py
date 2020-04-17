@@ -172,13 +172,9 @@ class HJSuperSloMoShelf(nn.Module):
         self.scale = args.flow_scale
         
         # grad supervision
-        self.grad_supervision = args.grad_supervision
-        
-        if self.grad_supervision:
+        self.grad_alpha = args.grad_alpha
+        if self.grad_alpha > 0.:
             self.get_grad = Get_gradient()
-            self.grad_alpha = 0.8
-        else:
-            self.grad_alpha = 0.
 
         self.L1_loss = nn.L1Loss()
         self.L2_loss = nn.MSELoss()
@@ -283,7 +279,7 @@ class HJSuperSloMoShelf(nn.Module):
         losses['smooth_loss'] = smooth_bwd + smooth_fwd
         
         # grad supervision
-        if self.grad_supervision:
+        if self.grad_alpha > 0.:
             target_grad = self.get_grad(im_target)
             out_grad = self.get_grad(im_t_out)
             

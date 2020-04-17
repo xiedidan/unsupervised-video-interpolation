@@ -187,4 +187,4 @@ parser.add_argument('--backbone', metavar='BACKBONE', default='none',
                          ' | '.join(backbone_names) +
                          ' (default: none)')
 parser.add_argument('--factorize', action='store_true', help='Use factorized conv in non-backbone layers.')
-parser.add_argument('--grad_supervision', action='store_true', help='Supervise grad in ShelfNet super-resolution.')
+parser.add_argument('--grad_alpha', default=0., type=float, help='If positive, calculate gradient loss.')
