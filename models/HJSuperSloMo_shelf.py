@@ -153,14 +153,14 @@ class HJSuperSloMoShelf(nn.Module):
         self.forward_flow_conv = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, pred_input_channel)
         self.backward_flow_conv = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, pred_input_channel)
         
-        interp_input_channel = 16
-        self.flow_interp = get_shelf_unet(N_JOINTS, input_channel=interp_input_channel)
-
-        self.flow_interp_forward_out_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, interp_input_channel)
-        self.flow_interp_backward_out_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, interp_input_channel)
+        self.flow_interp = get_shelf_unet(N_JOINTS, input_channel=16)
+        
+        # sr with ft-0 and ft->1 only
+        self.flow_interp_forward_out_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, 4)
+        self.flow_interp_backward_out_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 2, 4)
 
         # visibility
-        self.flow_interp_vis_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 1, interp_input_channel)
+        self.flow_interp_vis_layer = ResSubPixelSR(UPSAMPLE_RATIO, N_JOINTS, 1, 4)
 
         self.resample2d_train = MyResample2D(args.crop_size[1], args.crop_size[0])
 
@@ -194,11 +194,13 @@ class HJSuperSloMoShelf(nn.Module):
 
     def make_flow_interpolation(self, in_data):
         flow_interp_x0, flow_interp_output = self.flow_interp(in_data)
+        
+        flow_maps = torch.cat((in_data[:, 9:11, :, :], in_data[:, 14:16, :, :]), dim=1)
+        
+        flow_interp_forward_flow = self.flow_interp_forward_out_layer(flow_maps, flow_interp_x0, flow_interp_output)
+        flow_interp_backward_flow = self.flow_interp_backward_out_layer(flow_maps, flow_interp_x0, flow_interp_output)
 
-        flow_interp_forward_flow = self.flow_interp_forward_out_layer(in_data, flow_interp_x0, flow_interp_output)
-        flow_interp_backward_flow = self.flow_interp_backward_out_layer(in_data, flow_interp_x0, flow_interp_output)
-
-        flow_interp_vis_map = self.flow_interp_vis_layer(in_data, flow_interp_x0, flow_interp_output)
+        flow_interp_vis_map = self.flow_interp_vis_layer(flow_maps, flow_interp_x0, flow_interp_output)
         flow_interp_vis_map = torch.sigmoid(flow_interp_vis_map)
 
         return flow_interp_forward_flow, flow_interp_backward_flow, flow_interp_vis_map
