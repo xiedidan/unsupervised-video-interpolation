@@ -38,6 +38,10 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 tqdm.monitor_interval = 0
 
+import torch.cuda.profiler as profiler
+import pyprof2
+pyprof2.init()
+
 import datasets
 import models
 import utils
@@ -404,59 +408,66 @@ def train_epoch(epoch, args, model, optimizer, lr_scheduler,
     # Get number of batches in one epoch.
     num_batches = len(train_loader) if args.train_n_batches < 0 \
         else args.train_n_batches
+    
+    with torch.autograd.profiler.emit_nvtx():
+        global_index = 0
+        for i, batch in enumerate(train_loader):
+            if i == args.prof_iter:
+                profiler.start()
 
-    global_index = 0
-    for i, batch in enumerate(train_loader):
+            # Set global index.
+            global_index = epoch * num_batches + i
 
-        # Set global index.
-        global_index = epoch * num_batches + i
+            # Move one step.
+            loss, outputs, _ = train_step(
+                batch, model, optimizer, block, args,
+                ((global_index + 1) % args.print_freq == 0))
 
-        # Move one step.
-        loss, outputs, _ = train_step(
-            batch, model, optimizer, block, args,
-            ((global_index + 1) % args.print_freq == 0))
+            # Update the loss accumulator.
+            loss_values.update(loss.data.item(), outputs.size(0))
 
-        # Update the loss accumulator.
-        loss_values.update(loss.data.item(), outputs.size(0))
+            # Summary writer.
+            if (global_index + 1) % args.print_freq == 0:
 
-        # Summary writer.
-        if (global_index + 1) % args.print_freq == 0:
+                # Reduce the loss.
+                if args.world_size > 1:
+                    t_loss_gpu = torch.Tensor([loss_values.val]).cuda()
+                    torch.distributed.all_reduce(t_loss_gpu)
+                    t_loss = t_loss_gpu.item() / args.world_size
+                else:
+                    t_loss = loss_values.val
 
-            # Reduce the loss.
-            if args.world_size > 1:
-                t_loss_gpu = torch.Tensor([loss_values.val]).cuda()
-                torch.distributed.all_reduce(t_loss_gpu)
-                t_loss = t_loss_gpu.item() / args.world_size
-            else:
-                t_loss = loss_values.val
+                # Write to tensorboard.
+                write_summary(global_index, lr_scheduler.get_lr()[0], t_loss,
+                              v_loss, v_psnr, v_ssim, v_ie, args)
 
-            # Write to tensorboard.
-            write_summary(global_index, lr_scheduler.get_lr()[0], t_loss,
-                          v_loss, v_psnr, v_ssim, v_ie, args)
+                # And reset the loss accumulator.
+                loss_values.reset()
 
-            # And reset the loss accumulator.
-            loss_values.reset()
+                # Print some output.
+                dict2print = {'iter': global_index,
+                              'epoch': str(epoch) + '/' + str(args.epochs),
+                              'batch': str(i + 1) + '/' + str(num_batches)}
+                str2print = ' '.join(key + " : " + str(dict2print[key])
+                                     for key in dict2print)
+                str2print += ' trainLoss:' + ' %1.3f' % t_loss
+                str2print += ' valLoss' + ' %1.3f' % v_loss
+                str2print += ' valPSNR' + ' %1.3f' % v_psnr
+                str2print += ' lr:' + ' %1.6f' % (lr_scheduler.get_lr()[0])
+                block.log(str2print)
+                
+            if i == args.prof_iter:
+                profiler.stop()
+                exit(0)
+                
+            # Break the training loop if we have reached the maximum number of batches.
+            if (i + 1) >= num_batches:
+                break
 
-            # Print some output.
-            dict2print = {'iter': global_index,
-                          'epoch': str(epoch) + '/' + str(args.epochs),
-                          'batch': str(i + 1) + '/' + str(num_batches)}
-            str2print = ' '.join(key + " : " + str(dict2print[key])
-                                 for key in dict2print)
-            str2print += ' trainLoss:' + ' %1.3f' % t_loss
-            str2print += ' valLoss' + ' %1.3f' % v_loss
-            str2print += ' valPSNR' + ' %1.3f' % v_psnr
-            str2print += ' lr:' + ' %1.6f' % (lr_scheduler.get_lr()[0])
-            block.log(str2print)
+        # Advance Learning rate.
+        lr_scheduler.step()
 
-        # Break the training loop if we have reached the maximum number of batches.
-        if (i + 1) >= num_batches:
-            break
-
-    # Advance Learning rate.
-    lr_scheduler.step()
-
-    return global_index
+        return global_index
 
 
 def save_model(model, optimizer, epoch, global_index, max_psnr, block, args, lr_scheduler):

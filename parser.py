@@ -65,12 +65,14 @@ parser.add_argument('--dataset', default='VideoInterp', type=str, metavar='TRAIN
                     help='Specify training dataset class for loading (Default: VideoInterp)')
 parser.add_argument('--resume', default='', type=str, metavar='CHECKPOINT_PATH',
                     help='path to checkpoint file (default: none)')
+parser.add_argument('--prof_iter', default=-1, type=int,
+                    help='iteration for performance profiling (default: -1)')
 
 # Resources
 parser.add_argument('--distributed_backend', default='nccl', type=str, metavar='DISTRIBUTED_BACKEND',
                     help='backend used for communication between processes.')
 parser.add_argument('-j', '--workers', default=16, type=int,
-                    help='number of data loader workers (default: 4)')
+                    help='number of data loader workers (default: 16)')
 parser.add_argument('-g', '--gpus', type=int, default=-1,
                     help='number of GPUs to use')
 parser.add_argument('--fp16', action='store_true', help='Enable mixed-precision training.')
